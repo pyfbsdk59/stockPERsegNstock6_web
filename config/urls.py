@@ -19,5 +19,6 @@ from django.urls import path
 from stock_app import views
 
 urlpatterns = [
+    path('admin/', admin.site.urls), # 如果你需要後台，這行要留著
     path('', views.home, name='home'),
 ]
