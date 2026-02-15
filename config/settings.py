@@ -15,6 +15,8 @@ import dj_database_url # 引入這個套件
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+import dj_database_url # 引入這個套件
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
@@ -23,9 +25,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-+rjlt85lfu6n4u1l7)xsc+5rj3yony6j_*x$va+nosl#(x=9xp"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = []
+
+
 
 
 # Application definition
@@ -74,37 +76,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-import os
-import dj_database_url # 引入這個套件
 
-# ... (前面的程式碼)
-
-INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'stock_app', # <--- 加入我們剛建立的 App
-]
-
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware', # <--- 加入這行，用於在 Render 處理靜態檔案
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    # ... (其他 middleware)
-]
-
-# 設定 Templates 路徑 (讓 Django 找得到我們的 HTML)
-TEMPLATES = [
-    {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')], # <--- 加上這行
-        'APP_DIRS': True,
-        # ...
-    },
-]
 
 # 資料庫設定 (關鍵！)
 # 本地開發用 SQLite，線上如果有環境變數 DATABASE_URL 則用 Aiven
