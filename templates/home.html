@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+
+{% block content %}
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    {% endfor %}
+{% endif %}
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white fw-bold">🔍 查詢股票</div>
+            <div class="card-body">
+                <form method="post" class="row g-2 align-items-center">
+                    {% csrf_token %}
+                    <div class="col-3">
+                        <select name="year" class="form-select">
+                            {% for y in years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-3">
+                        <select name="month" class="form-select">
+                            {% for m in months %}<option value="{{ m }}">{{ m }}月</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <input type="text" name="stock_id" class="form-control" placeholder="代碼 (e.g. 2330)" value="{{ selected_id|default:'' }}" required>
+                    </div>
+                    <div class="col-2">
+                        <button type="submit" name="search_stock" class="btn btn-primary w-100">Go</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100 border-success">
+            <div class="card-header bg-success text-white fw-bold">📂 上傳 GUI 匯出的 JSON</div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" class="row g-2">
+                    {% csrf_token %}
+                    <div class="col-9">
+                        <input type="file" name="upload_json" class="form-control" accept=".json" required>
+                    </div>
+                    <div class="col-3">
+                        <button type="submit" name="upload_json" class="btn btn-success w-100">上傳</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if result %}
+{% with per=result.PER_Analysis six=result.Six_Indicators %}
+<div class="card shadow mb-5">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">{{ per.Name }} ({{ result.Meta.StockID }})</h4>
+        <span class="badge bg-light text-dark">資料月份: {{ result.Meta.TargetMonth }}</span>
+    </div>
+    <div class="card-body">
+        
+        <div class="row text-center mb-4">
+            <div class="col-md-3">
+                <div class="p-3 border rounded bg-light">
+                    <div class="text-muted small">預估 EPS (2026)</div>
+                    <div class="h3 text-danger fw-bold">{{ per.Predict_EPS }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded bg-light">
+                    <div class="text-muted small">目標價 (高)</div>
+                    <div class="h3 text-success fw-bold">{{ per.Target_H }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded bg-light">
+                    <div class="text-muted small">目標價 (低)</div>
+                    <div class="h3 text-secondary fw-bold">{{ per.Target_L }}</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded bg-light">
+                    <div class="text-muted small">潛在報酬</div>
+                    <div class="h3 text-danger fw-bold">{{ per.Profit }}</div>
+                </div>
+            </div>
+        </div>
+
+        <h5 class="border-bottom pb-2 mb-3">📊 歷史股價與本益比區間</h5>
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped text-center align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>年份</th>
+                        <th>最高價</th>
+                        <th>最低價</th>
+                        <th>EPS</th>
+                        <th>PE 高</th>
+                        <th>PE 低</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="table-warning fw-bold">
+                        <td>{{ per.Current_Year }}/{{ per.Current_Year_ROC }}(預估)</td>
+                        <td class="text-danger">{{ per.Target_H }}</td>
+                        <td class="text-success">{{ per.Target_L }}</td>
+                        <td class="text-primary">{{ per.Predict_EPS }}</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                    
+                    <tr>
+                        <td>{{ per.Current_Year|add:"-1" }}/{{ per.Current_Year_ROC|add:"-1" }}{% if per.EPS1_Is_Est %}(預){% endif %}</td>
+                        <td>{{ per.H.0 }}</td>
+                        <td>{{ per.L.0 }}</td>
+                        <td>{{ per.EPS.0 }}</td>
+                        <td>{{ per.PE_H.0 }}</td>
+                        <td>{{ per.PE_L.0 }}</td>
+                    </tr>
+
+                    <tr>
+                        <td>{{ per.Current_Year|add:"-2" }}/{{ per.Current_Year_ROC|add:"-2" }}</td>
+                        <td>{{ per.H.1 }}</td>
+                        <td>{{ per.L.1 }}</td>
+                        <td>{{ per.EPS.1 }}</td>
+                        <td>{{ per.PE_H.1 }}</td>
+                        <td>{{ per.PE_L.1 }}</td>
+                    </tr>
+                    </tbody>
+            </table>
+        </div>
+
+        <div class="alert alert-info mt-3">
+            <strong>🏆 六大指標總評：</strong> 
+            <span class="fs-4 fw-bold text-danger">{{ six.Average }} 分</span>
+            <hr>
+            <div class="row">
+                <div class="col">營收: {{ six.Rev.Rating }}</div>
+                <div class="col">營益率: {{ six.Op.Rating }}</div>
+                <div class="col">淨利: {{ six.Net.Rating }}</div>
+                <div class="col">EPS: {{ six.EPS.Rating }}</div>
+                <div class="col">存貨: {{ six.Inv.Rating }}</div>
+                <div class="col">現金流: {{ six.CF.Rating }}</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endwith %}
+{% endif %}
+{% endblock %}

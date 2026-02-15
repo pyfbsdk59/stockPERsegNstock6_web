@@ -1,0 +1,33 @@
+# --- Python 通用 ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- 虛擬環境 (Virtual Environments) ---
+# 這是最常見的，你的 venv 資料夾不該上傳
+venv/
+env/
+.venv/
+.env
+
+# --- Django 專案特定 ---
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+
+# --- IDE 設定檔 (不需要上傳 VS Code 或 PyCharm 的設定) ---
+.vscode/
+.idea/
+
+# --- 作業系統產生的垃圾檔 ---
+.DS_Store
+Thumbs.db
+
+# --- 您的專案特定資料 ---
+# 假設您的爬蟲會下載 Excel 或圖片，且不想上傳，可以在這裡加：
+*.xlsx
+*.csv
+# 如果您不想上傳下載的圖片資料夾
+downloaded_images/
