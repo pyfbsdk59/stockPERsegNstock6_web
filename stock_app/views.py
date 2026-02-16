@@ -3,111 +3,196 @@ from django.contrib import messages
 from .models import StockData
 import json
 import datetime
-# 引入 dateutil 來處理月份加減會更方便，但在不增加依賴的情況下，我們用原生邏輯寫
-from dateutil.relativedelta import relativedelta # 建議加裝 pip install python-dateutil
+# 為了避免 Render 部署問題，我們用原生 datetime 處理月份加減
+# from dateutil.relativedelta import relativedelta 
 
 def home(request):
     context = {}
     now = datetime.datetime.now()
     
-    # --- [新增] 自動判斷預設年月邏輯 ---
+    # --- 1. 自動判斷預設顯示的年月 ---
+    # 邏輯：每月10號前，預設看上上個月；10號後，看上個月
     if now.day > 10:
-        # 超過10號 -> 預設為上個月
-        target_date = now - relativedelta(months=1)
+        # 上個月
+        default_month = now.month - 1
+        default_year = now.year
     else:
-        # 10號(含)以前 -> 預設為上上個月
-        target_date = now - relativedelta(months=2)
+        # 上上個月
+        default_month = now.month - 2
+        default_year = now.year
         
-    default_year = target_date.year
-    default_month = target_date.month
-    # --------------------------------
-
+    # 處理跨年 (例如 1月-1 = 0月 -> 去年12月)
+    while default_month <= 0:
+        default_month += 12
+        default_year -= 1
+        
     # 下拉選單範圍 (前後5年)
     context['years'] = range(now.year, now.year - 5, -1)
     context['months'] = range(1, 13)
     
-    # 設定選單預設值：如果有 POST (使用者自己選的) 就用 POST，否則用自動判斷的 default
+    # 設定選單預設值
     try:
-        context['selected_year'] = int(request.POST.get('year', default_year))
-        context['selected_month'] = int(request.POST.get('month', default_month))
+        req_y = request.POST.get('year')
+        req_m = request.POST.get('month')
+        context['selected_year'] = int(req_y) if req_y else default_year
+        context['selected_month'] = int(req_m) if req_m else default_month
     except ValueError:
         context['selected_year'] = default_year
         context['selected_month'] = default_month
 
     if request.method == 'POST':
-        # ... (中間的上傳邏輯保持不變) ...
-        # ... (為了節省篇幅，這裡省略上傳部分的代碼，請保留原樣) ...
-
-        # --- 處理查詢 ---
-        # 這裡也要確保當使用者只是「上傳」而沒有按查詢時，選單不會跑掉
-        if 'stock_id' in request.POST and 'upload_json' not in request.FILES:
-            sid = request.POST.get('stock_id', '').strip()
-            q_year = int(request.POST.get('year'))
-            q_month = int(request.POST.get('month'))
-            
-            context['selected_id'] = sid
-            
+        
+        # =========================================================
+        # 功能 A: 上傳 JSON
+        # =========================================================
+        if 'upload_json' in request.FILES:
             try:
-                db_obj = StockData.objects.get(
-                    stock_id=sid, 
-                    data_year=q_year, 
-                    data_month=q_month
-                )
+                f = request.FILES['upload_json']
+                data = json.load(f)
+                count = 0
+                debug_info = []
+
+                for sid, content in data.items():
+                    meta = content.get('Meta', {})
+                    
+                    # 強制解析年份與月份，避免存錯
+                    # 1. 嘗試讀取 GUI 傳來的 TargetMonth
+                    try:
+                        t_month = int(meta.get('TargetMonth', now.month))
+                    except:
+                        t_month = now.month
+                        
+                    # 2. 嘗試讀取 QueryDate 的年份
+                    q_date_str = meta.get('QueryDate', now.strftime('%Y-%m-%d'))
+                    try:
+                        t_year = int(q_date_str.split('-')[0])
+                    except:
+                        t_year = now.year
+
+                    # 3. 寫入資料庫
+                    StockData.objects.update_or_create(
+                        stock_id=sid,
+                        data_year=t_year,
+                        data_month=t_month,
+                        defaults={
+                            'stock_name': meta.get('StockName', str(sid)),
+                            'raw_data': content
+                        }
+                    )
+                    count += 1
+                    debug_info.append(f"{sid}存為{t_year}年{t_month}月")
+
+                # 顯示成功訊息 (包含除錯資訊)
+                msg = f"成功匯入 {count} 筆資料！<br><small>詳細：{', '.join(debug_info[:3])}...</small>"
+                messages.success(request, msg) # 注意：這裡用了 HTML，前端要支援 safe
                 
-                # ... (以下資料打包邏輯完全保持不變) ...
-                raw = db_obj.raw_data
-                per = raw['PER_Analysis']
-                
-                # 1. 歷史股價
-                hist_rows = []
-                loop_len = min(len(per['H']), len(per['L']), len(per['EPS']))
-                for i in range(loop_len):
-                    y_ad = per['Current_Year'] - 1 - i
-                    y_roc = per['Current_Year_ROC'] - 1 - i
-                    hist_rows.append({
-                        'year_str': f"{y_ad}/{y_roc}",
-                        'h': per['H'][i], 'l': per['L'][i], 'eps': per['EPS'][i],
-                        'pe_h': per['PE_H'][i], 'pe_l': per['PE_L'][i]
-                    })
-                
-                # 2. 營收
-                rev_rows = []
-                for i in range(len(per['Rev_Names'])):
-                    rev_rows.append({'name': per['Rev_Names'][i], 'val': per['Rev_Vals'][i]})
-                yoy_rows = []
-                for i in range(len(per['YoY_Names'])):
-                    yoy_rows.append({'name': per['YoY_Names'][i], 'yoy': per['YoY_Vals'][i]})
+                # 上傳後自動將選單切換到上傳資料的月份，方便使用者直接查詢
+                context['selected_year'] = t_year
+                context['selected_month'] = t_month
 
-                # 3. 淨利
-                net_rows = []
-                for i in range(len(per['Net_Names'])):
-                    net_rows.append({'name': per['Net_Names'][i], 'val': per['Net_Vals'][i]})
+            except Exception as e:
+                messages.error(request, f"上傳失敗：{e}")
 
-                # 4. Q4 檢查
-                q4_data = [
-                    ("狀態", per['Detect_Reason']),
-                    ("網頁最新季別", per['Latest_Quarter_Str']),
-                    ("Q1 EPS (實際)", per['EPS_Q1']),
-                    ("Q2 EPS (實際)", per['EPS_Q2']),
-                    ("Q3 EPS (實際)", per['EPS_Q3']),
-                    ("Q1-Q3 總和", round(per['EPS_Q1']+per['EPS_Q2']+per['EPS_Q3'], 2)),
-                    ("---", "---"),
-                    ("去年 Q4 營收", per['Q4_Rev_Actual']),
-                    ("平均淨利率", per['Net_Avg']),
-                    ("股本(億)", per['Capital']),
-                    ("Q4 EPS (估算)", per['Q4_EPS_Est']),
-                    ("---", "---"),
-                    ("全年 EPS (估/實)", per['Total_EPS_Est']),
-                ]
+        # =========================================================
+        # 功能 B: 查詢股票 (含智慧搜尋)
+        # =========================================================
+        # 只要 POST 裡有 stock_id，即使是上傳動作後的刷新，也嘗試顯示數據
+        target_sid = request.POST.get('stock_id', '').strip()
+        
+        # 如果是剛上傳完，可能還沒按查詢，但我們嘗試直接顯示上傳的那一筆
+        if not target_sid and 'upload_json' in request.FILES:
+             # 嘗試從剛上傳的 data 裡抓第一個 key 當作預設查詢
+             try:
+                 target_sid = list(data.keys())[0]
+             except: pass
 
-                context['result'] = raw
-                context['hist_rows'] = hist_rows
-                context['rev_rows'] = rev_rows
-                context['yoy_rows'] = yoy_rows
-                context['net_rows'] = net_rows
-                context['q4_rows'] = q4_data
+        if target_sid:
+            context['selected_id'] = target_sid
+            q_year = context['selected_year']
+            q_month = context['selected_month']
+            
+            db_obj = None
+            search_msg = ""
 
+            # 1. 嘗試精準搜尋
+            try:
+                db_obj = StockData.objects.get(stock_id=target_sid, data_year=q_year, data_month=q_month)
             except StockData.DoesNotExist:
-                messages.warning(request, f"找不到 {q_year}年 {q_month}月 的 {sid} 資料。")
+                # 2. 精準搜尋失敗，嘗試「智慧搜尋」：找該股票最近的一筆資料
+                fallback_obj = StockData.objects.filter(stock_id=target_sid).order_by('-data_year', '-data_month').first()
+                
+                if fallback_obj:
+                    db_obj = fallback_obj
+                    # 更新選單顯示，讓使用者知道現在看的是哪個月
+                    context['selected_year'] = db_obj.data_year
+                    context['selected_month'] = db_obj.data_month
+                    messages.warning(request, f"找不到 {q_year}/{q_month} 的資料，已自動為您顯示最近一筆 ({db_obj.data_year}/{db_obj.data_month}) 的數據。")
+                else:
+                    messages.error(request, f"資料庫中完全找不到代號 {target_sid} 的任何資料，請先上傳。")
+
+            # 3. 如果有找到資料 (不論是精準還是智慧搜尋)，準備顯示
+            if db_obj:
+                raw = db_obj.raw_data
+                per = raw.get('PER_Analysis', {})
+                
+                # --- 資料打包給 Template 用 (維持原樣) ---
+                if per:
+                    # 歷史股價
+                    hist_rows = []
+                    H = per.get('H', []); L = per.get('L', []); EPS = per.get('EPS', [])
+                    PE_H = per.get('PE_H', []); PE_L = per.get('PE_L', [])
+                    
+                    loop_len = min(len(H), len(L), len(EPS))
+                    for i in range(loop_len):
+                        y_ad = per.get('Current_Year', 2026) - 1 - i
+                        y_roc = per.get('Current_Year_ROC', 115) - 1 - i
+                        hist_rows.append({
+                            'year_str': f"{y_ad}/{y_roc}",
+                            'h': H[i], 'l': L[i], 'eps': EPS[i],
+                            'pe_h': PE_H[i] if i < len(PE_H) else '-', 
+                            'pe_l': PE_L[i] if i < len(PE_L) else '-'
+                        })
+                    
+                    # 營收與 YoY
+                    rev_rows = []
+                    rev_names = per.get('Rev_Names', []); rev_vals = per.get('Rev_Vals', [])
+                    yoy_names = per.get('YoY_Names', []); yoy_vals = per.get('YoY_Vals', [])
+                    
+                    for i in range(len(rev_names)):
+                        rev_rows.append({'name': rev_names[i], 'val': rev_vals[i]})
+                    
+                    yoy_rows_list = []
+                    for i in range(len(yoy_names)):
+                        yoy_rows_list.append({'name': yoy_names[i], 'yoy': yoy_vals[i]})
+
+                    # 淨利
+                    net_rows = []
+                    net_names = per.get('Net_Names', []); net_vals = per.get('Net_Vals', [])
+                    for i in range(len(net_names)):
+                        net_rows.append({'name': net_names[i], 'val': net_vals[i]})
+
+                    # Q4 列表
+                    q4_data = [
+                        ("狀態", per.get('Detect_Reason','-')),
+                        ("網頁最新季別", per.get('Latest_Quarter_Str','-')),
+                        ("Q1 EPS (實際)", per.get('EPS_Q1',0)),
+                        ("Q2 EPS (實際)", per.get('EPS_Q2',0)),
+                        ("Q3 EPS (實際)", per.get('EPS_Q3',0)),
+                        ("Q1-Q3 總和", round(per.get('EPS_Q1',0)+per.get('EPS_Q2',0)+per.get('EPS_Q3',0), 2)),
+                        ("---", "---"),
+                        ("去年 Q4 營收", per.get('Q4_Rev_Actual',0)),
+                        ("平均淨利率", per.get('Net_Avg','0%')),
+                        ("股本(億)", per.get('Capital',0)),
+                        ("Q4 EPS (估算)", per.get('Q4_EPS_Est',0)),
+                        ("---", "---"),
+                        ("全年 EPS (估/實)", per.get('Total_EPS_Est',0)),
+                    ]
+
+                    context['result'] = raw
+                    context['hist_rows'] = hist_rows
+                    context['rev_rows'] = rev_rows
+                    context['yoy_rows'] = yoy_rows_list
+                    context['net_rows'] = net_rows
+                    context['q4_rows'] = q4_data
 
     return render(request, 'home.html', context)
