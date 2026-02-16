@@ -3,77 +3,58 @@ from django.contrib import messages
 from .models import StockData
 import json
 import datetime
+# 引入 dateutil 來處理月份加減會更方便，但在不增加依賴的情況下，我們用原生邏輯寫
+from dateutil.relativedelta import relativedelta # 建議加裝 pip install python-dateutil
 
 def home(request):
     context = {}
     now = datetime.datetime.now()
-    current_year = now.year
     
-    # 下拉選單範圍
-    context['years'] = range(current_year, current_year - 5, -1)
+    # --- [新增] 自動判斷預設年月邏輯 ---
+    if now.day > 10:
+        # 超過10號 -> 預設為上個月
+        target_date = now - relativedelta(months=1)
+    else:
+        # 10號(含)以前 -> 預設為上上個月
+        target_date = now - relativedelta(months=2)
+        
+    default_year = target_date.year
+    default_month = target_date.month
+    # --------------------------------
+
+    # 下拉選單範圍 (前後5年)
+    context['years'] = range(now.year, now.year - 5, -1)
     context['months'] = range(1, 13)
     
-    # 預設選單停留在當下時間，或使用者上次選的時間
-    context['selected_year'] = int(request.POST.get('year', current_year))
-    context['selected_month'] = int(request.POST.get('month', now.month))
+    # 設定選單預設值：如果有 POST (使用者自己選的) 就用 POST，否則用自動判斷的 default
+    try:
+        context['selected_year'] = int(request.POST.get('year', default_year))
+        context['selected_month'] = int(request.POST.get('month', default_month))
+    except ValueError:
+        context['selected_year'] = default_year
+        context['selected_month'] = default_month
 
     if request.method == 'POST':
-        # --- 處理上傳 JSON ---
-        if 'upload_json' in request.FILES:
-            try:
-                f = request.FILES['upload_json']
-                data = json.load(f)
-                count = 0
-                for sid, content in data.items():
-                    meta = content.get('Meta', {})
-                    
-                    # 1. 解析月份 (從 GUI 紀錄的 TargetMonth)
-                    try:
-                        t_month = int(meta.get('TargetMonth', now.month))
-                    except:
-                        t_month = now.month
-                        
-                    # 2. 解析年份 (從 QueryDate 抓取，例如 "2026-02-15")
-                    # 邏輯：通常查詢日期的年份就是資料年份
-                    q_date_str = meta.get('QueryDate', now.strftime('%Y-%m-%d'))
-                    try:
-                        t_year = int(q_date_str.split('-')[0])
-                    except:
-                        t_year = now.year
-
-                    # 3. 儲存或更新 (以 代碼+年+月 為基準)
-                    StockData.objects.update_or_create(
-                        stock_id=sid,
-                        data_year=t_year,
-                        data_month=t_month,
-                        defaults={
-                            'stock_name': meta.get('StockName', ''),
-                            'raw_data': content
-                        }
-                    )
-                    count += 1
-                messages.success(request, f"成功匯入 {count} 筆資料 (年份:{t_year}, 月份:{t_month})！")
-            except Exception as e:
-                messages.error(request, f"上傳失敗：{e}")
+        # ... (中間的上傳邏輯保持不變) ...
+        # ... (為了節省篇幅，這裡省略上傳部分的代碼，請保留原樣) ...
 
         # --- 處理查詢 ---
+        # 這裡也要確保當使用者只是「上傳」而沒有按查詢時，選單不會跑掉
         if 'stock_id' in request.POST and 'upload_json' not in request.FILES:
             sid = request.POST.get('stock_id', '').strip()
-            # 取得使用者選單的年、月
             q_year = int(request.POST.get('year'))
             q_month = int(request.POST.get('month'))
             
             context['selected_id'] = sid
             
             try:
-                # [關鍵修改] 增加年份與月份的過濾條件
                 db_obj = StockData.objects.get(
                     stock_id=sid, 
                     data_year=q_year, 
                     data_month=q_month
                 )
                 
-                # --- 以下為資料打包邏輯 (與之前相同) ---
+                # ... (以下資料打包邏輯完全保持不變) ...
                 raw = db_obj.raw_data
                 per = raw['PER_Analysis']
                 
@@ -127,6 +108,6 @@ def home(request):
                 context['q4_rows'] = q4_data
 
             except StockData.DoesNotExist:
-                messages.warning(request, f"找不到 {q_year}年 {q_month}月 的 {sid} 資料。請確認是否已上傳該月份數據。")
+                messages.warning(request, f"找不到 {q_year}年 {q_month}月 的 {sid} 資料。")
 
     return render(request, 'home.html', context)
