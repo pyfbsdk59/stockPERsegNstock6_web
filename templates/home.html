@@ -1,117 +1,9 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<style>
-    .table-sm td, .table-sm th { padding: 0.25rem; }
-    .nav-tabs .nav-link.active { background-color: #e7f1ff; color: #0d6efd; font-weight: bold; }
-    .card-header { background-color: #f8f9fa; }
-    .stat-box { transition: transform 0.2s; }
-    .stat-box:hover { transform: translateY(-3px); }
-</style>
-
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="card shadow-sm h-100">
-            <div class="card-body d-flex align-items-center">
-                <form method="post" class="row g-2 w-100">
-                    {% csrf_token %}
- <div class="col-3">
-    <select name="year" class="form-select">
-        {% for y in years %}
-            <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
-        {% endfor %}
-    </select>
-</div>
-<div class="col-3">
-    <select name="month" class="form-select">
-        {% for m in months %}
-            <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>{{ m }}月</option>
-        {% endfor %}
-    </select>
-</div>
-                    <div class="col-4">
-                        <input type="text" name="stock_id" class="form-control" placeholder="代號 (e.g. 2330)" value="{{ selected_id|default:'' }}" required>
-                    </div>
-                    <div class="col-2">
-                        <button type="submit" name="search_stock" class="btn btn-primary w-100">Go</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card shadow-sm h-100 border-success">
-            <div class="card-body d-flex align-items-center justify-content-between">
-                <span class="fw-bold text-success">📂 匯入 JSON 數據</span>
-                <form method="post" enctype="multipart/form-data" class="d-flex">
-                    {% csrf_token %}
-                    <input type="file" name="upload_json" class="form-control me-2" accept=".json" required>
-                    <button type="submit" class="btn btn-success">上傳</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-{% if messages %}
-    {% for message in messages %}
-        <div class="alert alert-{{ message.tags }} alert-dismissible fade show">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
-    {% endfor %}
-{% endif %}
-
-{% if result %}
-{% with per=result.PER_Analysis six=result.Six_Indicators meta=result.Meta %}
-<div class="card shadow mb-5">
-    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-        <h4 class="mb-0 fw-bold">{{ per.Name }} ({{ meta.StockID }})</h4>
-        <div>
-            <span class="badge bg-light text-dark me-2">查詢日: {{ meta.QueryDate }}</span>
-            <span class="badge bg-warning text-dark">基準月: {{ meta.TargetMonth }}</span>
-        </div>
-    </div>
-    
-    <div class="card-body">
-        
-        <div class="row text-center mb-4 g-3">
-            <div class="col-md-2">
-                <div class="p-2 border rounded bg-light stat-box">
-                    <small class="text-muted">最新成交價</small>
-                    <div class="fs-5 fw-bold">{{ per.Now_Price }}</div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="p-2 border rounded bg-light stat-box">
-                    <small class="text-muted">預估營收</small>
-                    <div class="fs-5">{{ per.Predict_Rev }}</div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="p-2 border rounded bg-light stat-box">
-                    <small class="text-muted">預估 EPS (2026)</small>
-                    <div class="fs-4 text-danger fw-bold">{{ per.Predict_EPS }}</div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="p-2 border rounded bg-light stat-box">
-                    <small class="text-muted">目標價 (高)</small>
-                    <div class="fs-5 text-success fw-bold">{{ per.Target_H }}</div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="p-2 border rounded bg-light stat-box">
-                    <small class="text-muted">目標價 (低)</small>
-                    <div class="fs-5 text-secondary fw-bold">{{ per.Target_L }}</div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="p-2 border rounded bg-light stat-box">
-                    <small class="text-muted">潛在報酬</small>
-                    <div class="fs-5 text-danger fw-bold">{{ per.Profit }}</div>
-                </div>
-            </div>
-        </div>
-
-        <ul class="nav nav-tabs mb-3" id="stockTabs" role="tablist">
+<ul class="nav nav-tabs mb-3" id="stockTabs" role="tablist">
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-realtime">⚡ 即時試算</button></li>
+            
             <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-hist">歷史股價</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-rev">營收分析</button></li>
             <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-net">淨利資料</button></li>
@@ -121,133 +13,105 @@
 
         <div class="tab-content" id="stockTabsContent">
             
-            <div class="tab-pane fade show active" id="tab-hist">
-                <div class="table-responsive">
-                    <table class="table table-bordered table-striped text-center table-hover">
-                        <thead class="table-dark">
-                            <tr><th>年份</th><th>最高</th><th>最低</th><th>EPS</th><th>PE 高</th><th>PE 低</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr class="table-warning fw-bold">
-                                <td>{{ per.Current_Year }}/{{ per.Current_Year_ROC }}(預估)</td>
-                                <td class="text-danger">{{ per.Target_H }}</td>
-                                <td class="text-success">{{ per.Target_L }}</td>
-                                <td class="text-primary">{{ per.Predict_EPS }}</td>
-                                <td>-</td><td>-</td>
-                            </tr>
-                            {% for row in hist_rows %}
-                            <tr>
-                                <td>{{ row.year_str }}{% if forloop.first and per.EPS1_Is_Est %}(預){% endif %}</td>
-                                <td>{{ row.h }}</td>
-                                <td>{{ row.l }}</td>
-                                <td>{{ row.eps }}</td>
-                                <td>{{ row.pe_h }}</td>
-                                <td>{{ row.pe_l }}</td>
-                            </tr>
-                            {% endfor %}
-                            <tr class="table-info">
-                                <td>平均 PE</td><td>-</td><td>-</td><td>-</td><td>{{ per.PE_Avg_H }}</td><td>{{ per.PE_Avg_L }}</td>
-                            </tr>
-                            <tr class="table-light fw-bold">
-                                <td>採用 PE</td><td>-</td><td>-</td><td>-</td><td>{{ per.PE_Use_H }}</td><td>{{ per.PE_Use_L }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <div class="tab-pane fade" id="tab-realtime">
+                <div class="card bg-light border-0">
+                    <div class="card-body text-center">
+                        <h5 class="card-title mb-3">📈 即時股價與風險報酬試算</h5>
+                        <p class="text-muted small">使用 2026 預測 EPS 與歷史本益比區間，結合即時股價進行動態評估。</p>
+                        
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="stock_id" value="{{ result.Meta.StockID }}">
+                            <input type="hidden" name="year" value="{{ selected_year }}">
+                            <input type="hidden" name="month" value="{{ selected_month }}">
+                            
+                            <button type="submit" name="calc_realtime" class="btn btn-danger btn-lg shadow-sm">
+                                🔄 獲取即時股價並試算
+                            </button>
+                        </form>
 
-            <div class="tab-pane fade" id="tab-rev">
-                <div class="row">
-                    <div class="col-md-8 mx-auto">
-                        <table class="table table-sm table-bordered text-center">
-                            <thead class="bg-light"><tr><th>月份</th><th>營收(億)</th><th>年增率</th></tr></thead>
-                            <tbody>
-                                {% for row in rev_rows %}
-                                <tr><td>{{ row.name }}</td><td>{{ row.val }}</td><td>-</td></tr>
-                                {% endfor %}
-                                <tr class="table-secondary"><td>---</td><td></td><td></td></tr>
-                                {% for row in yoy_rows %}
-                                <tr><td>{{ row.name }}</td><td>-</td><td class="{% if '-' in row.yoy %}text-success{% else %}text-danger{% endif %}">{{ row.yoy }}</td></tr>
-                                {% endfor %}
-                                <tr class="table-warning fw-bold">
-                                    <td>平均/選用</td><td>-</td><td>{{ per.YoY_Avg }} / {{ per.YoY_Use }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+                        <hr>
 
-            <div class="tab-pane fade" id="tab-net">
-                <div class="col-md-6 mx-auto">
-                    <table class="table table-bordered text-center">
-                        <thead class="bg-light"><tr><th>季度</th><th>淨利率</th></tr></thead>
-                        <tbody>
-                            {% for row in net_rows %}
-                            <tr><td>{{ row.name }}</td><td>{{ row.val }}</td></tr>
-                            {% endfor %}
-                            <tr class="table-warning fw-bold"><td>平均</td><td>{{ per.Net_Avg }}</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="tab-pane fade" id="tab-six">
-                <div class="alert alert-info text-center mb-3">
-                    <strong>🏆 總評分：</strong> <span class="fs-4 fw-bold text-danger">{{ six.Average }}</span> 分
-                </div>
-                <div class="row g-3">
-                    {% for key, item in six.items %}
-                    {% if key != 'Name' and key != 'Average' %}
-                    <div class="col-md-4">
-                        <div class="card h-100">
-                            <div class="card-header d-flex justify-content-between">
-                                <strong>{{ key }}</strong>
-                                <span class="badge {% if item.Rating == 'A' or item.Rating == 'AA' %}bg-danger{% else %}bg-secondary{% endif %}">{{ item.Rating }}</span>
+                        {% if realtime_res %}
+                        <div class="row g-3 justify-content-center mt-2">
+                            <div class="col-md-3">
+                                <div class="p-3 bg-white border rounded shadow-sm">
+                                    <div class="text-muted small">即時成交價</div>
+                                    <div class="fs-2 fw-bold text-dark">{{ realtime_res.price }}</div>
+                                </div>
                             </div>
-                            <div class="card-body p-0">
-                                <table class="table table-sm table-striped mb-0 text-center" style="font-size: 0.9em;">
-                                    <thead><tr><th>項目</th><th>數值</th>{% if key == 'Net' %}<th>YoY</th>{% endif %}</tr></thead>
-                                    <tbody>
-                                        {% for d in item.Data %}
-                                        <tr>
-                                            <td>{{ d.Name }}</td>
-                                            <td>{{ d.Val }}</td>
-                                            {% if key == 'Net' %}<td>{{ d.YoY|default:"-" }}</td>{% endif %}
-                                        </tr>
-                                        {% endfor %}
-                                        {% for k, v in item.Extra.items %}
-                                        <tr class="table-secondary fw-bold"><td>{{ k }}</td><td colspan="2">{{ v }}</td></tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
+                            
+                            <div class="col-md-3">
+                                <div class="p-3 bg-white border rounded shadow-sm">
+                                    <div class="text-muted small">預測 EPS (2026)</div>
+                                    <div class="fs-2 fw-bold text-primary">{{ realtime_res.eps_2026 }}</div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-3">
+                                <div class="p-3 bg-white border rounded shadow-sm">
+                                    <div class="text-muted small">採用本益比區間</div>
+                                    <div class="fs-5">{{ realtime_res.pe_l }} ~ {{ realtime_res.pe_h }} 倍</div>
+                                </div>
                             </div>
                         </div>
+
+                        <div class="row g-3 justify-content-center mt-3">
+                            <div class="col-md-4">
+                                <div class="card border-success h-100">
+                                    <div class="card-header bg-success text-white">🚀 上漲空間 (Target High)</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title text-success">{{ realtime_res.target_h }}</h3>
+                                        <p class="card-text fs-5">空間: {{ realtime_res.upside }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-4">
+                                <div class="card border-danger h-100">
+                                    <div class="card-header bg-danger text-white">🛡️ 下跌風險 (Target Low)</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title text-danger">{{ realtime_res.target_l }}</h3>
+                                        <p class="card-text fs-5">風險: {{ realtime_res.downside }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-md-4">
+                                <div class="card border-info h-100">
+                                    <div class="card-header bg-info text-dark">⚖️ 風險報酬比 (RR)</div>
+                                    <div class="card-body">
+                                        <h3 class="card-title text-primary">{{ realtime_res.rr }}</h3>
+                                        <p class="text-muted small">數值越大越好 (獲利潛力 > 風險)</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-secondary mt-3">
+                            尚未進行試算，請點擊上方按鈕。
+                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
-                    {% endfor %}
                 </div>
             </div>
 
-            <div class="tab-pane fade" id="tab-q4">
-                <div class="col-md-8 mx-auto">
-                    <table class="table table-bordered table-hover">
-                        <thead class="table-dark"><tr><th>項目</th><th>數值/狀態</th></tr></thead>
-                        <tbody>
-                            {% for row in q4_rows %}
-                            <tr>
-                                <td class="fw-bold">{{ row.0 }}</td>
-                                <td>{{ row.1 }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            <div class="tab-pane fade show active" id="tab-hist">
+            ```
 
-        </div>
-    </div>
-</div>
-{% endwith %}
-{% endif %}
+### 自動跳轉小技巧
+
+如果您希望按下按鈕後，頁面重新整理時能**自動切換到「即時試算」分頁**，可以在 `home.html` 的底部加入這段 JavaScript：
+
+```html
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // 如果網址包含即時試算的標記 (或檢測到有 realtime_res)，自動切換 Tab
+        {% if realtime_res %}
+            var triggerEl = document.querySelector('button[data-bs-target="#tab-realtime"]');
+            var tab = new bootstrap.Tab(triggerEl);
+            tab.show();
+        {% endif %}
+    });
+</script>
 {% endblock %}
