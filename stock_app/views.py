@@ -8,11 +8,19 @@ from bs4 import BeautifulSoup
 import random
 
 # =========================================================
+# 輔助函式：解析百分比字串 (例如 "15.5%" -> 0.155)
+# =========================================================
+def parse_pct(val):
+    try:
+        return float(str(val).replace('%', '').replace(',', '').strip()) / 100
+    except:
+        return 0.0
+
+# =========================================================
 # 輔助函式：即時爬蟲 (抓取最新成交價)
 # =========================================================
 def fetch_live_price(stock_id):
     try:
-        # 隨機 User-Agent 避免被擋
         agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
@@ -24,7 +32,6 @@ def fetch_live_price(stock_id):
         if r.status_code != 200: return None
         
         soup = BeautifulSoup(r.content, 'html.parser')
-        
         price = 0.0
         uls = soup.find_all('ul')
         for ul in uls:
@@ -52,7 +59,7 @@ def get_dashboard_data(db_obj):
     raw = db_obj.raw_data
     per = raw.get('PER_Analysis', {})
     
-    # 1. 歷史股價
+    # 歷史股價
     hist_rows = []
     H = per.get('H', []); L = per.get('L', []); EPS = per.get('EPS', [])
     PE_H = per.get('PE_H', []); PE_L = per.get('PE_L', [])
@@ -71,7 +78,7 @@ def get_dashboard_data(db_obj):
             'pe_l': PE_L[i] if i < len(PE_L) else '-'
         })
     
-    # 2. 營收與 YoY
+    # 營收
     rev_rows = []
     rev_names = per.get('Rev_Names', []); rev_vals = per.get('Rev_Vals', [])
     yoy_names = per.get('YoY_Names', []); yoy_vals = per.get('YoY_Vals', [])
@@ -81,13 +88,13 @@ def get_dashboard_data(db_obj):
     for i in range(len(yoy_names)):
         yoy_rows_list.append({'name': yoy_names[i], 'yoy': yoy_vals[i]})
 
-    # 3. 淨利
+    # 淨利
     net_rows = []
     net_names = per.get('Net_Names', []); net_vals = per.get('Net_Vals', [])
     for i in range(len(net_names)):
         net_rows.append({'name': net_names[i], 'val': net_vals[i]})
 
-    # 4. Q4 列表
+    # Q4
     q4_data = [
         ("狀態", per.get('Detect_Reason','-')),
         ("網頁最新季別", per.get('Latest_Quarter_Str','-')),
@@ -120,7 +127,7 @@ def home(request):
     context = {}
     now = datetime.datetime.now()
     
-    # 自動判斷預設年月 (10號規則)
+    # 10號規則
     if now.day > 10:
         default_month = now.month - 1
         default_year = now.year
@@ -153,7 +160,6 @@ def home(request):
                 count = 0
                 debug_info = []
                 
-                # 自動切換到上傳資料的年月
                 upload_year = context['selected_year']
                 upload_month = context['selected_month']
 
@@ -182,10 +188,8 @@ def home(request):
             except Exception as e:
                 messages.error(request, f"上傳失敗：{e}")
 
-        # --- [功能 B] 查詢與試算 ---
+        # --- [功能 B] 查詢與模擬 ---
         target_sid = request.POST.get('stock_id', '').strip()
-        
-        # 上傳後自動查詢
         if not target_sid and 'upload_json' in request.FILES:
              try: target_sid = list(data.keys())[0]
              except: pass
@@ -199,7 +203,6 @@ def home(request):
             try:
                 db_obj = StockData.objects.get(stock_id=target_sid, data_year=q_year, data_month=q_month)
             except StockData.DoesNotExist:
-                # 智慧搜尋最近一筆
                 fallback_obj = StockData.objects.filter(stock_id=target_sid).order_by('-data_year', '-data_month').first()
                 if fallback_obj:
                     db_obj = fallback_obj
@@ -210,27 +213,61 @@ def home(request):
                     messages.error(request, f"找不到代號 {target_sid} 的資料。")
 
             if db_obj:
-                # 1. 載入基礎資料
                 base_data = get_dashboard_data(db_obj)
                 context.update(base_data)
                 
                 per_data = db_obj.raw_data.get('PER_Analysis', {})
                 
-                # --- [功能 C] 處理模擬試算 (新功能) ---
+                # --- [功能 C] 模擬試算邏輯 (大幅升級) ---
                 if 'calc_simulation' in request.POST:
                     live_price = fetch_live_price(target_sid)
                     
                     try:
-                        # 從表單接收使用者輸入的數值 (若空則用原始值)
-                        user_eps = float(request.POST.get('sim_eps', per_data.get('Predict_EPS', 0)))
-                        user_yoy = request.POST.get('sim_yoy', per_data.get('YoY_Use', '0%'))
-                        user_net = request.POST.get('sim_net', per_data.get('Net_Avg', '0%'))
-                        user_pe_h = float(request.POST.get('sim_pe_h', per_data.get('PE_Use_H', 0)))
-                        user_pe_l = float(request.POST.get('sim_pe_l', per_data.get('PE_Use_L', 0)))
+                        # 1. 取得原始基礎參數
+                        orig_yoy = parse_pct(per_data.get('YoY_Use', '0%'))
+                        orig_net = parse_pct(per_data.get('Net_Avg', '0%'))
+                        capital = float(per_data.get('Capital', 1))
+                        # 這是 JSON 中計算好的預估營收，我們先還原回「基期營收」(去年的概念)
+                        orig_rev_predict = float(per_data.get('Predict_Rev', 0))
                         
-                        # 計算
-                        target_h = round(user_eps * user_pe_h, 2)
-                        target_l = round(user_eps * user_pe_l, 2)
+                        # 反推基期營收：如果預估營收是成長後的，那除以 (1+YoY) 就是基期
+                        if (1 + orig_yoy) != 0:
+                            base_rev = orig_rev_predict / (1 + orig_yoy)
+                        else:
+                            base_rev = orig_rev_predict
+
+                        # 2. 接收使用者輸入 (若空則使用原始值)
+                        # 注意：前端傳來的是 "15" 代表 15%，所以要除以 100
+                        user_yoy_val = request.POST.get('sim_yoy', '').strip()
+                        user_net_val = request.POST.get('sim_net', '').strip()
+                        
+                        # 處理 YOY 輸入
+                        if user_yoy_val:
+                            sim_yoy = float(user_yoy_val) / 100
+                        else:
+                            sim_yoy = orig_yoy
+                            
+                        # 處理 淨利率 輸入
+                        if user_net_val:
+                            sim_net = float(user_net_val) / 100
+                        else:
+                            sim_net = orig_net
+
+                        # 處理 PE 區間輸入
+                        sim_pe_h = float(request.POST.get('sim_pe_h', per_data.get('PE_Use_H', 0)))
+                        sim_pe_l = float(request.POST.get('sim_pe_l', per_data.get('PE_Use_L', 0)))
+                        
+                        # 3. 連動計算核心公式
+                        # 新營收 = 基期營收 * (1 + 新YoY)
+                        sim_rev = base_rev * (1 + sim_yoy)
+                        # 新淨利 = 新營收 * 新淨利率
+                        sim_net_income = sim_rev * sim_net
+                        # 新EPS = 新淨利 / 股本 * 10
+                        sim_eps = round(sim_net_income / capital * 10, 2)
+                        
+                        # 計算目標價
+                        target_h = round(sim_eps * sim_pe_h, 2)
+                        target_l = round(sim_eps * sim_pe_l, 2)
                         
                         upside = 0; downside = 0; rr = 0
                         if live_price:
@@ -238,14 +275,15 @@ def home(request):
                             downside = (target_l - live_price) / live_price
                             rr = abs(upside / downside) if downside != 0 else 0
                         
-                        # 回傳結果
                         context['sim_res'] = {
                             'live_price': live_price if live_price else "抓取失敗",
-                            'eps': user_eps,
-                            'yoy': user_yoy,
-                            'net': user_net,
-                            'pe_h': user_pe_h,
-                            'pe_l': user_pe_l,
+                            # 回傳給前端顯示的值 (轉回百分比顯示)
+                            'display_yoy': round(sim_yoy * 100, 2),
+                            'display_net': round(sim_net * 100, 2),
+                            'pe_h': sim_pe_h,
+                            'pe_l': sim_pe_l,
+                            'calc_eps': sim_eps, # 這是計算出來的新 EPS
+                            'calc_rev': round(sim_rev, 2),
                             'target_h': target_h,
                             'target_l': target_l,
                             'upside': f"{upside*100:.2f}%" if live_price else "-",
@@ -253,10 +291,10 @@ def home(request):
                             'rr': round(rr, 2) if live_price else "-"
                         }
                         
-                        if live_price: messages.success(request, f"模擬計算完成！採用即時股價：{live_price}")
-                        else: messages.warning(request, "模擬計算完成，但無法抓取即時股價，無法計算報酬率。")
+                        if live_price: messages.success(request, f"試算成功！EPS 已根據參數重新計算。")
+                        else: messages.warning(request, "試算完成，但無法抓取即時股價。")
                         
                     except ValueError:
-                        messages.error(request, "輸入格式錯誤，請確保輸入有效的數字。")
+                        messages.error(request, "輸入格式錯誤，請檢查數值。")
 
     return render(request, 'home.html', context)
