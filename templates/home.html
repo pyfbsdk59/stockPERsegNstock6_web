@@ -10,6 +10,7 @@
     .stat-card:hover { transform: translateY(-3px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important; }
     .card-shadow { box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: none; }
     .input-group-text { background-color: #e9ecef; width: 45px; justify-content: center; }
+    .note-box { border-left: 4px solid #ffc107; background-color: #fff3cd; }
 </style>
 
 <div class="row mb-4 g-3">
@@ -93,14 +94,25 @@
                         <div class="card h-100 border-0 bg-light">
                             <div class="card-body">
                                 <h5 class="card-title text-secondary fw-bold mb-3 border-bottom pb-2">📊 原始預估 (JSON)</h5>
-                                <div class="d-flex justify-content-between mb-2"><span>預估 EPS (2026)</span><strong class="text-dark">{{ per.Predict_EPS }}</strong></div>
-                                <div class="d-flex justify-content-between mb-2"><span>預估營收年增率</span><strong>{{ per.YoY_Use }}</strong></div>
-                                <div class="d-flex justify-content-between mb-2"><span>平均淨利率</span><strong>{{ per.Net_Avg }}</strong></div>
-                                <div class="d-flex justify-content-between mb-2"><span>PE 區間</span><strong>{{ per.PE_Use_L }} ~ {{ per.PE_Use_H }}</strong></div>
-                                <hr>
-                                <div class="text-center text-muted small">
-                                    股本：{{ per.Capital }} 億<br>
-                                    原始預估營收：{{ per.Predict_Rev }} 億
+                                <ul class="list-group list-group-flush bg-transparent mb-3">
+                                    <li class="list-group-item bg-transparent d-flex justify-content-between px-0"><span>預估 EPS (2026)</span><strong class="text-dark">{{ per.Predict_EPS }}</strong></li>
+                                    <li class="list-group-item bg-transparent d-flex justify-content-between px-0"><span>原始預估營收</span><strong>{{ per.Predict_Rev }} 億</strong></li>
+                                    <li class="list-group-item bg-transparent d-flex justify-content-between px-0"><span>原始營收年增率</span><strong>{{ per.YoY_Use }}</strong></li>
+                                    <li class="list-group-item bg-transparent d-flex justify-content-between px-0"><span>平均淨利率</span><strong>{{ per.Net_Avg }}</strong></li>
+                                    <li class="list-group-item bg-transparent d-flex justify-content-between px-0"><span>股本</span><strong>{{ per.Capital }} 億</strong></li>
+                                </ul>
+
+                                <div class="p-3 rounded note-box">
+                                    <h6 class="fw-bold text-dark border-bottom border-warning pb-2 mb-2">💡 兩者差異說明</h6>
+                                    <p class="small text-muted mb-2">
+                                        <strong>原始預估：</strong> 依據爬蟲當下的營收趨勢推算，數值固定。
+                                    </p>
+                                    <p class="small text-muted mb-0">
+                                        <strong>模擬計算：</strong> 
+                                        程式會先反推「去年基期營收」，再依據您輸入的 <span class="text-primary fw-bold">營收年增率</span> 與 <span class="text-primary fw-bold">淨利率</span> 重新計算 EPS。
+                                        <br>
+                                        <em>公式：(基期營收 × 新成長率 × 新淨利率) ÷ 股本</em>
+                                    </p>
                                 </div>
                             </div>
                         </div>
