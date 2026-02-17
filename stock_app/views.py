@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import random
 
 # =========================================================
-# 輔助函式：即時爬蟲 (與 GUI 邏輯相同)
+# 輔助函式：即時爬蟲 (抓取最新成交價)
 # =========================================================
 def fetch_live_price(stock_id):
     try:
@@ -25,27 +25,28 @@ def fetch_live_price(stock_id):
         
         soup = BeautifulSoup(r.content, 'html.parser')
         
-        # 嘗試抓取成交價 (根據 Wearn 網頁結構)
         price = 0.0
         uls = soup.find_all('ul')
         for ul in uls:
             if "成交價" in str(ul):
                 li = ul.find_all('li')[0]
                 txt = li.text.replace(',', '').strip()
-                price = float(txt)
+                try: price = float(txt)
+                except: pass
                 break
         
-        # 備用抓取邏輯
         if price == 0 and len(uls) > 6:
-            txt = uls[4].find_all('li')[0].text.replace(',', '').strip()
-            price = float(txt)
+            try:
+                txt = uls[4].find_all('li')[0].text.replace(',', '').strip()
+                price = float(txt)
+            except: pass
             
         return price if price > 0 else None
     except:
         return None
 
 # =========================================================
-# 輔助函式：資料打包 (讓 search 和 calc 共用)
+# 輔助函式：資料打包
 # =========================================================
 def get_dashboard_data(db_obj):
     raw = db_obj.raw_data
@@ -57,9 +58,12 @@ def get_dashboard_data(db_obj):
     PE_H = per.get('PE_H', []); PE_L = per.get('PE_L', [])
     loop_len = min(len(H), len(L), len(EPS))
     
+    current_year = per.get('Current_Year', datetime.datetime.now().year)
+    current_year_roc = per.get('Current_Year_ROC', current_year - 1911)
+
     for i in range(loop_len):
-        y_ad = per.get('Current_Year', 2026) - 1 - i
-        y_roc = per.get('Current_Year_ROC', 115) - 1 - i
+        y_ad = current_year - 1 - i
+        y_roc = current_year_roc - 1 - i
         hist_rows.append({
             'year_str': f"{y_ad}/{y_roc}",
             'h': H[i], 'l': L[i], 'eps': EPS[i],
@@ -116,7 +120,7 @@ def home(request):
     context = {}
     now = datetime.datetime.now()
     
-    # 自動判斷預設顯示的年月
+    # 自動判斷預設年月 (10號規則)
     if now.day > 10:
         default_month = now.month - 1
         default_year = now.year
@@ -141,13 +145,18 @@ def home(request):
         context['selected_month'] = default_month
 
     if request.method == 'POST':
-        # --- 上傳邏輯 (保持不變) ---
+        # --- [功能 A] 上傳 JSON ---
         if 'upload_json' in request.FILES:
             try:
                 f = request.FILES['upload_json']
                 data = json.load(f)
                 count = 0
                 debug_info = []
+                
+                # 自動切換到上傳資料的年月
+                upload_year = context['selected_year']
+                upload_month = context['selected_month']
+
                 for sid, content in data.items():
                     meta = content.get('Meta', {})
                     try: t_month = int(meta.get('TargetMonth', now.month))
@@ -156,23 +165,27 @@ def home(request):
                     try: t_year = int(q_date_str.split('-')[0])
                     except: t_year = now.year
                     
+                    upload_year = t_year
+                    upload_month = t_month
+
                     StockData.objects.update_or_create(
                         stock_id=sid, data_year=t_year, data_month=t_month,
                         defaults={'stock_name': meta.get('StockName', str(sid)), 'raw_data': content}
                     )
                     count += 1
-                    debug_info.append(f"{sid}存為{t_year}年{t_month}月")
+                    debug_info.append(f"{sid}({t_year}/{t_month})")
                 
-                messages.success(request, f"成功匯入 {count} 筆資料！<br><small>詳細：{', '.join(debug_info[:3])}...</small>")
-                context['selected_year'] = t_year
-                context['selected_month'] = t_month
+                messages.success(request, f"成功匯入 {count} 筆資料！<br><small>{', '.join(debug_info[:2])}...</small>")
+                context['selected_year'] = upload_year
+                context['selected_month'] = upload_month
+                
             except Exception as e:
                 messages.error(request, f"上傳失敗：{e}")
 
-        # --- 查詢與即時試算邏輯 ---
+        # --- [功能 B] 查詢與試算 ---
         target_sid = request.POST.get('stock_id', '').strip()
         
-        # 自動填入上傳的第一筆
+        # 上傳後自動查詢
         if not target_sid and 'upload_json' in request.FILES:
              try: target_sid = list(data.keys())[0]
              except: pass
@@ -192,57 +205,58 @@ def home(request):
                     db_obj = fallback_obj
                     context['selected_year'] = db_obj.data_year
                     context['selected_month'] = db_obj.data_month
-                    messages.warning(request, f"找不到 {q_year}/{q_month} 的資料，已自動顯示最近一筆 ({db_obj.data_year}/{db_obj.data_month})。")
+                    messages.warning(request, f"找不到 {q_year}/{q_month}，已自動顯示 ({db_obj.data_year}/{db_obj.data_month}) 資料。")
                 else:
                     messages.error(request, f"找不到代號 {target_sid} 的資料。")
 
             if db_obj:
-                # 1. 先打包基礎數據供顯示
+                # 1. 載入基礎資料
                 base_data = get_dashboard_data(db_obj)
                 context.update(base_data)
                 
-                # 2. 判斷是否為「即時試算」請求
-                if 'calc_realtime' in request.POST:
-                    per_data = db_obj.raw_data.get('PER_Analysis', {})
-                    
-                    # A. 抓取即時股價
+                per_data = db_obj.raw_data.get('PER_Analysis', {})
+                
+                # --- [功能 C] 處理模擬試算 (新功能) ---
+                if 'calc_simulation' in request.POST:
                     live_price = fetch_live_price(target_sid)
                     
-                    # B. 進行試算 (使用 JSON 內的 2026 預測值)
-                    if live_price:
-                        try:
-                            # 讀取數據
-                            predict_eps = float(per_data.get('Predict_EPS', 0)) # 這是 2026 預測值
-                            pe_h = float(per_data.get('PE_Use_H', 0))
-                            pe_l = float(per_data.get('PE_Use_L', 0))
-                            
-                            # 計算目標價
-                            target_h = round(predict_eps * pe_h, 2)
-                            target_l = round(predict_eps * pe_l, 2)
-                            
-                            # 計算空間
+                    try:
+                        # 從表單接收使用者輸入的數值 (若空則用原始值)
+                        user_eps = float(request.POST.get('sim_eps', per_data.get('Predict_EPS', 0)))
+                        user_yoy = request.POST.get('sim_yoy', per_data.get('YoY_Use', '0%'))
+                        user_net = request.POST.get('sim_net', per_data.get('Net_Avg', '0%'))
+                        user_pe_h = float(request.POST.get('sim_pe_h', per_data.get('PE_Use_H', 0)))
+                        user_pe_l = float(request.POST.get('sim_pe_l', per_data.get('PE_Use_L', 0)))
+                        
+                        # 計算
+                        target_h = round(user_eps * user_pe_h, 2)
+                        target_l = round(user_eps * user_pe_l, 2)
+                        
+                        upside = 0; downside = 0; rr = 0
+                        if live_price:
                             upside = (target_h - live_price) / live_price
                             downside = (target_l - live_price) / live_price
-                            
-                            # 風險報酬比
-                            rr_ratio = abs(upside / downside) if downside != 0 else 0
-                            
-                            # 包裝結果
-                            context['realtime_res'] = {
-                                'price': live_price,
-                                'eps_2026': predict_eps,
-                                'pe_h': pe_h,
-                                'pe_l': pe_l,
-                                'target_h': target_h,
-                                'target_l': target_l,
-                                'upside': f"{upside*100:.2f}%",
-                                'downside': f"{downside*100:.2f}%",
-                                'rr': round(rr_ratio, 2)
-                            }
-                            messages.success(request, f"即時股價更新成功：{live_price}")
-                        except Exception as calc_err:
-                            messages.error(request, f"試算錯誤：數據不完整 ({calc_err})")
-                    else:
-                        messages.error(request, "無法獲取即時股價，請稍後再試。")
+                            rr = abs(upside / downside) if downside != 0 else 0
+                        
+                        # 回傳結果
+                        context['sim_res'] = {
+                            'live_price': live_price if live_price else "抓取失敗",
+                            'eps': user_eps,
+                            'yoy': user_yoy,
+                            'net': user_net,
+                            'pe_h': user_pe_h,
+                            'pe_l': user_pe_l,
+                            'target_h': target_h,
+                            'target_l': target_l,
+                            'upside': f"{upside*100:.2f}%" if live_price else "-",
+                            'downside': f"{downside*100:.2f}%" if live_price else "-",
+                            'rr': round(rr, 2) if live_price else "-"
+                        }
+                        
+                        if live_price: messages.success(request, f"模擬計算完成！採用即時股價：{live_price}")
+                        else: messages.warning(request, "模擬計算完成，但無法抓取即時股價，無法計算報酬率。")
+                        
+                    except ValueError:
+                        messages.error(request, "輸入格式錯誤，請確保輸入有效的數字。")
 
     return render(request, 'home.html', context)
