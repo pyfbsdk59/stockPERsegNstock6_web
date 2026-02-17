@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import random
 
 # =========================================================
-# 輔助函式：解析百分比字串 (例如 "15.5%" -> 0.155)
+# 輔助函式：解析百分比字串
 # =========================================================
 def parse_pct(val):
     try:
@@ -17,7 +17,7 @@ def parse_pct(val):
         return 0.0
 
 # =========================================================
-# 輔助函式：即時爬蟲 (抓取最新成交價)
+# 輔助函式：即時爬蟲
 # =========================================================
 def fetch_live_price(stock_id):
     try:
@@ -215,86 +215,110 @@ def home(request):
             if db_obj:
                 base_data = get_dashboard_data(db_obj)
                 context.update(base_data)
-                
                 per_data = db_obj.raw_data.get('PER_Analysis', {})
                 
-                # --- [功能 C] 模擬試算邏輯 (大幅升級) ---
+                # --- [功能 C] 模擬試算邏輯 (含算式紀錄) ---
                 if 'calc_simulation' in request.POST:
                     live_price = fetch_live_price(target_sid)
                     
                     try:
-                        # 1. 取得原始基礎參數
+                        # 1. 取得原始參數
                         orig_yoy = parse_pct(per_data.get('YoY_Use', '0%'))
                         orig_net = parse_pct(per_data.get('Net_Avg', '0%'))
                         capital = float(per_data.get('Capital', 1))
-                        # 這是 JSON 中計算好的預估營收，我們先還原回「基期營收」(去年的概念)
                         orig_rev_predict = float(per_data.get('Predict_Rev', 0))
                         
-                        # 反推基期營收：如果預估營收是成長後的，那除以 (1+YoY) 就是基期
+                        calc_details = [] # 算式紀錄清單
+
+                        # 2. 反推基期營收
                         if (1 + orig_yoy) != 0:
                             base_rev = orig_rev_predict / (1 + orig_yoy)
                         else:
                             base_rev = orig_rev_predict
+                        
+                        calc_details.append({
+                            "step": "1. 反推基期營收",
+                            "formula": f"原始預估營收 {orig_rev_predict} ÷ (1 + 原始YoY {orig_yoy:.2%})",
+                            "result": f"{base_rev:.2f} 億"
+                        })
 
-                        # 2. 接收使用者輸入 (若空則使用原始值)
-                        # 注意：前端傳來的是 "15" 代表 15%，所以要除以 100
+                        # 3. 接收使用者輸入
                         user_yoy_val = request.POST.get('sim_yoy', '').strip()
                         user_net_val = request.POST.get('sim_net', '').strip()
                         
-                        # 處理 YOY 輸入
-                        if user_yoy_val:
-                            sim_yoy = float(user_yoy_val) / 100
-                        else:
-                            sim_yoy = orig_yoy
+                        if user_yoy_val: sim_yoy = float(user_yoy_val) / 100
+                        else: sim_yoy = orig_yoy
                             
-                        # 處理 淨利率 輸入
-                        if user_net_val:
-                            sim_net = float(user_net_val) / 100
-                        else:
-                            sim_net = orig_net
+                        if user_net_val: sim_net = float(user_net_val) / 100
+                        else: sim_net = orig_net
 
-                        # 處理 PE 區間輸入
                         sim_pe_h = float(request.POST.get('sim_pe_h', per_data.get('PE_Use_H', 0)))
                         sim_pe_l = float(request.POST.get('sim_pe_l', per_data.get('PE_Use_L', 0)))
                         
-                        # 3. 連動計算核心公式
-                        # 新營收 = 基期營收 * (1 + 新YoY)
+                        # 4. 連動計算
+                        # A. 新營收
                         sim_rev = base_rev * (1 + sim_yoy)
-                        # 新淨利 = 新營收 * 新淨利率
+                        calc_details.append({
+                            "step": "2. 計算模擬營收",
+                            "formula": f"基期營收 {base_rev:.2f} × (1 + 設定YoY {sim_yoy:.2%})",
+                            "result": f"{sim_rev:.2f} 億"
+                        })
+
+                        # B. 新淨利
                         sim_net_income = sim_rev * sim_net
-                        # 新EPS = 新淨利 / 股本 * 10
+                        calc_details.append({
+                            "step": "3. 計算模擬淨利",
+                            "formula": f"模擬營收 {sim_rev:.2f} × 設定淨利率 {sim_net:.2%}",
+                            "result": f"{sim_net_income:.2f} 億"
+                        })
+
+                        # C. 新EPS
                         sim_eps = round(sim_net_income / capital * 10, 2)
+                        calc_details.append({
+                            "step": "4. 計算模擬 EPS",
+                            "formula": f"(模擬淨利 {sim_net_income:.2f} ÷ 股本 {capital}) × 10",
+                            "result": f"{sim_eps} 元"
+                        })
                         
-                        # 計算目標價
+                        # D. 目標價
                         target_h = round(sim_eps * sim_pe_h, 2)
                         target_l = round(sim_eps * sim_pe_l, 2)
+                        calc_details.append({
+                            "step": "5. 計算目標價",
+                            "formula": f"高: EPS {sim_eps} × PE {sim_pe_h} | 低: EPS {sim_eps} × PE {sim_pe_l}",
+                            "result": f"高 {target_h} / 低 {target_l}"
+                        })
                         
+                        # E. 報酬率
                         upside = 0; downside = 0; rr = 0
                         if live_price:
                             upside = (target_h - live_price) / live_price
                             downside = (target_l - live_price) / live_price
                             rr = abs(upside / downside) if downside != 0 else 0
+                            
+                            calc_details.append({
+                                "step": "6. 報酬與風險",
+                                "formula": f"即時價 {live_price} vs 目標價 {target_h} / {target_l}",
+                                "result": f"上 {upside*100:.2f}% / 下 {downside*100:.2f}%"
+                            })
                         
                         context['sim_res'] = {
                             'live_price': live_price if live_price else "抓取失敗",
-                            # 回傳給前端顯示的值 (轉回百分比顯示)
                             'display_yoy': round(sim_yoy * 100, 2),
                             'display_net': round(sim_net * 100, 2),
-                            'pe_h': sim_pe_h,
-                            'pe_l': sim_pe_l,
-                            'calc_eps': sim_eps, # 這是計算出來的新 EPS
-                            'calc_rev': round(sim_rev, 2),
-                            'target_h': target_h,
-                            'target_l': target_l,
+                            'pe_h': sim_pe_h, 'pe_l': sim_pe_l,
+                            'calc_eps': sim_eps, 'calc_rev': round(sim_rev, 2),
+                            'target_h': target_h, 'target_l': target_l,
                             'upside': f"{upside*100:.2f}%" if live_price else "-",
                             'downside': f"{downside*100:.2f}%" if live_price else "-",
-                            'rr': round(rr, 2) if live_price else "-"
+                            'rr': round(rr, 2) if live_price else "-",
+                            'details': calc_details # 傳遞詳細算式
                         }
                         
-                        if live_price: messages.success(request, f"試算成功！EPS 已根據參數重新計算。")
+                        if live_price: messages.success(request, f"試算成功！EPS 已更新。")
                         else: messages.warning(request, "試算完成，但無法抓取即時股價。")
                         
                     except ValueError:
-                        messages.error(request, "輸入格式錯誤，請檢查數值。")
+                        messages.error(request, "輸入格式錯誤。")
 
     return render(request, 'home.html', context)

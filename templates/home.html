@@ -99,7 +99,8 @@
                                 <div class="d-flex justify-content-between mb-2"><span>PE 區間</span><strong>{{ per.PE_Use_L }} ~ {{ per.PE_Use_H }}</strong></div>
                                 <hr>
                                 <div class="text-center text-muted small">
-                                    此為程式依據匯入時的數據所做的自動預估。
+                                    股本：{{ per.Capital }} 億<br>
+                                    原始預估營收：{{ per.Predict_Rev }} 億
                                 </div>
                             </div>
                         </div>
@@ -160,7 +161,7 @@
                                         <span class="h3 mb-0 fw-bold text-primary">{{ sim_res.calc_eps }}</span>
                                     </div>
                                     
-                                    <div class="row text-center">
+                                    <div class="row text-center mb-3">
                                         <div class="col-4 border-end">
                                             <small class="text-muted">目標價(高)</small>
                                             <div class="fw-bold text-success">{{ sim_res.target_h }}</div>
@@ -176,9 +177,37 @@
                                             <small class="text-danger">{{ sim_res.downside }}</small>
                                         </div>
                                     </div>
-                                    <div class="text-center mt-3">
+                                    
+                                    <div class="text-center mb-3">
                                         <span class="badge bg-dark rounded-pill px-3">風險報酬比 (RR): {{ sim_res.rr }}</span>
                                     </div>
+
+                                    <div class="accordion" id="calcAccordion">
+                                        <div class="accordion-item border-0">
+                                            <h2 class="accordion-header" id="headingOne">
+                                                <button class="accordion-button collapsed bg-light py-2 text-muted small" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+                                                    👁️ 查看詳細計算過程 (驗證用)
+                                                </button>
+                                            </h2>
+                                            <div id="collapseOne" class="accordion-collapse collapse" data-bs-parent="#calcAccordion">
+                                                <div class="accordion-body p-0">
+                                                    <table class="table table-sm table-bordered mb-0 small">
+                                                        <thead class="table-light"><tr><th>步驟</th><th>算式</th><th>結果</th></tr></thead>
+                                                        <tbody>
+                                                            {% for row in sim_res.details %}
+                                                            <tr>
+                                                                <td>{{ row.step }}</td>
+                                                                <td class="text-muted font-monospace">{{ row.formula }}</td>
+                                                                <td class="fw-bold">{{ row.result }}</td>
+                                                            </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                 </div>
                                 {% endif %}
                             </div>
