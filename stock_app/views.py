@@ -321,4 +321,18 @@ def home(request):
                     except ValueError:
                         messages.error(request, "輸入格式錯誤。")
 
+# ... (前面的程式碼保持不變) ...
+
+        # =========================================================
+        # 功能 D: 取得已匯入的股票清單供前端顯示
+        # =========================================================
+        # 抓取所有資料的代號與名稱，並利用字典去除重複項
+        stocks_qs = StockData.objects.values('stock_id', 'stock_name').order_by('stock_id')
+        unique_stocks = {}
+        for s in stocks_qs:
+            unique_stocks[s['stock_id']] = s['stock_name']
+            
+        # 將字典轉換為列表傳給前端
+        context['available_stocks'] = [{'id': sid, 'name': sname} for sid, sname in unique_stocks.items()]
+
     return render(request, 'home.html', context)

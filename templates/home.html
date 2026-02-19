@@ -17,7 +17,12 @@
     <div class="col-lg-6">
         <div class="card card-shadow h-100">
             <div class="card-body">
-                <h6 class="card-title text-primary fw-bold mb-3">🔍 查詢股票</h6>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 class="card-title text-primary fw-bold mb-0">🔍 查詢股票</h6>
+    <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#stockListModal">
+        📋 已匯入名單
+    </button>
+</div>
                 <form method="post" class="row g-2 align-items-center">
                     {% csrf_token %}
                     <div class="col-3">
@@ -275,7 +280,32 @@
 </div>
 {% endwith %}
 {% endif %}
-
+<div class="modal fade" id="stockListModal" tabindex="-1" aria-labelledby="stockListModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title fw-bold text-dark" id="stockListModalLabel">📋 資料庫已有股票</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                {% if available_stocks %}
+                    <div class="list-group list-group-flush">
+                    {% for stock in available_stocks %}
+                        <a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center stock-select-btn" data-id="{{ stock.id }}">
+                            <span><strong class="text-primary me-2">{{ stock.id }}</strong> {{ stock.name }}</span>
+                            <span class="badge bg-secondary rounded-pill text-white">點擊帶入</span>
+                        </a>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted p-4">
+                        目前資料庫尚無任何股票，請先上傳 JSON 數據。
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         // 如果有進行模擬試算，自動切換到該 Tab
@@ -284,6 +314,32 @@
             var tab = new bootstrap.Tab(triggerEl);
             tab.show();
         {% endif %}
+
+{% if sim_res %}
+            var triggerEl = document.querySelector('button[data-bs-target="#tab-sim"]');
+            var tab = new bootstrap.Tab(triggerEl);
+            tab.show();
+        {% endif %}
+
+        // [新增] 點擊名單自動帶入代碼邏輯
+        const stockSelectBtns = document.querySelectorAll('.stock-select-btn');
+        stockSelectBtns.forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault(); // 防止網頁跳轉
+                const stockId = this.getAttribute('data-id'); // 獲取代碼
+                
+                // 將代碼填入查詢框
+                document.querySelector('input[name="stock_id"]').value = stockId;
+                
+                // 關閉 Modal
+                var modalEl = document.getElementById('stockListModal');
+                var modalInstance = bootstrap.Modal.getInstance(modalEl);
+                if(modalInstance) {
+                    modalInstance.hide();
+                }
+            });
+        });
+
     });
 </script>
 
